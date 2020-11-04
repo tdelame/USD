@@ -41,6 +41,11 @@ public:
     HGIGL_API
     ~HgiGLTexture() override;
 
+    /// The three following lines are added to reuse textures in Hydra
+    HgiGLTexture( const HgiTextureDesc& desc, uint32_t texture_id ) : HgiTexture( desc ), _textureId{ texture_id } {}
+    void setDescriptor( const HgiTextureDesc& desc ) { _descriptor = desc; }
+    void setTextureId( uint32_t id ) { _textureId = id; }
+
     HGIGL_API
     size_t GetByteSizeOfResource() const override;
 

@@ -174,6 +174,10 @@ public:
     HD_API
     bool GetUseAovMultiSample() const;
 
+    /// Returns true if the render pass must resolve its multi-sample aovs.
+    HD_API void SetResolveAovMultiSample( bool state );
+    HD_API bool GetResolveAovMultiSample() const;
+
     HD_API
     void SetCullStyle(HdCullStyle cullStyle);
     HD_API
@@ -349,6 +353,7 @@ protected:
 
     HdRenderPassAovBindingVector _aovBindings;
     bool _useMultiSampleAov;
+    bool _resolveMultiSampleAov;
 };
 
 PXR_NAMESPACE_CLOSE_SCOPE

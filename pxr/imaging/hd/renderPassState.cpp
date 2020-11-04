@@ -80,6 +80,7 @@ HdRenderPassState::HdRenderPassState()
     , _colorMaskUseDefault(true)
     , _colorMask(HdRenderPassState::ColorMaskRGBA)
     , _useMultiSampleAov(true)
+    , _resolveMultiSampleAov(true)
 {
 }
 
@@ -269,6 +270,14 @@ bool
 HdRenderPassState::GetUseAovMultiSample() const
 {
     return _useMultiSampleAov;
+}
+
+void HdRenderPassState::SetResolveAovMultiSample( bool state ) {
+    _resolveMultiSampleAov = state;
+}
+
+bool HdRenderPassState::GetResolveAovMultiSample() const {
+    return _resolveMultiSampleAov;
 }
 
 void

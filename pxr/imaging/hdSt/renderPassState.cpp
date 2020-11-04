@@ -521,6 +521,7 @@ HdStRenderPassState::MakeGraphicsCmdsDesc(
 
     static const size_t maxColorTex = 8;
     const bool useMultiSample = GetUseAovMultiSample();
+    const bool resolveMultiSample = GetResolveAovMultiSample();
 
     HgiGraphicsCmdsDesc desc;
 
@@ -552,12 +553,12 @@ HdStRenderPassState::MakeGraphicsCmdsDesc(
 
         // Get resolve texture target.
         HgiTextureHandle hgiResolveHandle;
-        if (multiSampled) {
+        if (multiSampled && resolveMultiSample) {
             VtValue resolveRes = renderBuffer->GetResource(/*ms*/false);
             if (!TF_VERIFY(resolveRes.IsHolding<HgiTextureHandle>())) {
                 continue;
             }
-            hgiResolveHandle = resolveRes.UncheckedGet<HgiTextureHandle>();
+            hgiResolveHandle = resolveRes.UncheckedGet<HgiTextureHandle>();    
         }
 
         // Assume AOVs have the same dimensions so pick size of any.
