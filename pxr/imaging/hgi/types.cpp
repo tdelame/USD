@@ -155,7 +155,7 @@ HgiIsCompressed(const HgiFormat f)
 uint16_t
 _ComputeNumMipLevels(const GfVec3i &dimensions)
 {
-    const int dim = std::max({dimensions[0], dimensions[1], dimensions[2]});
+    const int dim = std::max(dimensions[0], std::max(dimensions[1], dimensions[2]));
     
     for (uint16_t i = 1; i < 8 * sizeof(int) - 1; i++) {
         const int powerTwo = 1 << i;
