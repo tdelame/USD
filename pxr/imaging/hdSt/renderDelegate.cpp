@@ -220,6 +220,10 @@ void
 HdStRenderDelegate::SetDrivers(HdDriverVector const& drivers)
 {
     if (_resourceRegistry) {
+        for (HdDriver* hdDriver : drivers)
+            if (hdDriver->name == HgiTokens->renderDriver && hdDriver->driver.IsHolding<Hgi*>()
+                && _hgi == hdDriver->driver.UncheckedGet<Hgi*>() ) 
+                return;
         TF_CODING_ERROR("Cannot set HdDriver twice for a render delegate.");
         return;
     }
