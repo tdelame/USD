@@ -134,9 +134,12 @@ struct LightingContribution {
     vec3 ambient;
     vec3 diffuse;
     vec3 specular;
+    vec3 indirect;
 };
 
 struct LightingInterfaceProperties {
+    vec3 diffuse;
+    vec3 specular;
     float shininess;
 };
 
@@ -212,6 +215,7 @@ integrateLightsConstant(vec4 Peye, vec3 Neye, LightingInterfaceProperties props)
     //pefectly diffuse white hemisphere contribution
     result.diffuse = vec3(1.0);
     result.specular = vec3(0.0);
+    result.indirect = vec3(0);
 
     return result;
 }
@@ -307,6 +311,33 @@ lightSpotAttenuation(vec3 l, int index)
 #define USE_SHADOWS 1
 #endif
 
+#define PI 3.1415
+
+vec2
+simpleLighting_projectToLatLong( vec3 sample3D )
+{
+    vec2 coord = vec2((atan(sample3D.z, sample3D.x) + 0.5 * PI) / (2.0 * PI),
+                      acos(sample3D.y) / PI);
+    return coord;
+}
+
+MAT4  GetWorldToViewInverseMatrix();
+
+mat4
+simpleLighting_GetDomeLightTransform(mat4 worldToLightTransform)
+{
+    // transform from view space to light space
+    mat4 worldToViewInverse = GetWorldToViewInverseMatrix();
+    return worldToLightTransform * worldToViewInverse;
+}
+
+float
+simpleLighting_SchlickFresnel(float EdotH)
+{
+    return pow(max(0.0, 1.0 - EdotH), 5.0);
+}
+
+
 LightingContribution
 integrateLightsDefault(vec4 Peye, vec3 Neye, LightingInterfaceProperties props)
 {
@@ -314,46 +345,65 @@ integrateLightsDefault(vec4 Peye, vec3 Neye, LightingInterfaceProperties props)
     result.ambient = vec3(0);
     result.diffuse = vec3(0);
     result.specular = vec3(0);
-    
+    result.indirect = vec3(0);
+
     vec3 n = normalize(Neye);
     vec3 e = normalize(-Peye.xyz);
+    float NdotE = max(0.0, dot(n, e));
+    vec4 Reye = vec4(reflect(-e, n), 0);
 
-    float shininess = props.shininess;
-    
     for (int i = 0; i < NUM_LIGHTS; ++i) {
-
-        vec4 Plight = lightSource[i].position;
-
+        vec4 Plight = (lightSource[i].isIndirectLight)
+                        ? vec4(0,0,0,1)
+                        : lightSource[i].position;
         vec3 l = (Plight.w == 0.0)
                     ? normalize(Plight.xyz)
                     : normalize(Plight - Peye).xyz;
 
-        vec3 h = normalize(l + vec3(0,0,1));    // directional viewer
+        vec3 h = normalize(l + e);
 
-        //cosine of incident angle of lightn
-        float NdotL = max(0.0, dot(n, l));
-        
-        //cosine of incident angle from halfway vector between the eye and the light
-        float NdotH = max(0.0, dot(n, h));
+        if( lightSource[i].isIndirectLight ) {
+            mat4 transformationMatrix = simpleLighting_GetDomeLightTransform(lightSource[i].worldToLightTransform);
+            float EdotH = max(0.0, dot(e, h));
+            const float MAX_REFLECTION_LOD = 4.0;
+            const float roughness = pow( 2.0 / ( props.shininess + 2.0), 0.25 );
+            const vec3 fresnel = mix(props.specular, vec3(1.0), simpleLighting_SchlickFresnel( EdotH ) );
 
-        //Lambert
-        float d = NdotL;
-        
-        //Blinn-Phong
-        float s = pow(NdotH, shininess);
+            result.indirect += HdGet_domeLightIrradiance(
+                simpleLighting_projectToLatLong(
+                    clamp((transformationMatrix * vec4(Neye, 0.0)).xyz, vec3(-1.0), vec3(1.0))
+                )).rgb * (1.0 - fresnel) * props.diffuse;
 
-        float atten = lightDistanceAttenuation(Peye, i);
-        atten *= lightSpotAttenuation(l, i);
+            vec2 brdf = HdGet_domeLightBRDF(vec2(NdotE, roughness)).rg;
+            vec3 prefilter = textureLod(
+                HdGetSampler_domeLightPrefilter(),
+                simpleLighting_projectToLatLong(
+                    clamp((transformationMatrix * Reye).xyz, vec3(-1.0), vec3(1.0))
+                ),
+                MAX_REFLECTION_LOD * roughness ).rgb;
+            result.indirect += prefilter * fresnel * (brdf.x + brdf.y) * props.specular;
+        }
+        else {
+            //cosine of incident angle of lightn
+            float NdotL = max(0.0, dot(n, l));
+
+            //cosine of incident angle from halfway vector between the eye and the light
+            float NdotH = max(0.0, dot(n, h));
+
+            float s = pow(NdotH, props.shininess);
+            float atten = lightDistanceAttenuation(Peye, i);
+            atten *= lightSpotAttenuation(l, i);
 
 #if USE_SHADOWS
-        float shadow = (lightSource[i].hasShadow) ?
+            float shadow = (lightSource[i].hasShadow) ?
             shadowing(/*lightIndex=*/i, Peye) : 1.0;
 #else
-        float shadow = 1.0;
+            float shadow = 1.0;
 #endif
-        result.ambient += atten * lightSource[i].ambient.rgb;
-        result.diffuse += atten * shadow * d * lightSource[i].diffuse.rgb;
-        result.specular += atten * shadow * s * lightSource[i].specular.rgb;
+            result.ambient += atten * lightSource[i].ambient.rgb;
+            result.diffuse += atten * shadow * NdotL * lightSource[i].diffuse.rgb;
+            result.specular += atten * shadow * s * lightSource[i].specular.rgb;
+        }
     }
 
     return result;
@@ -366,6 +416,7 @@ integrateLightsConstant(vec4 Peye, vec3 Neye, LightingInterfaceProperties props)
     result.ambient = vec3(0);
     result.specular = vec3(0);
     result.diffuse = vec3(1);
+    result.indirect = vec3(0);
 
     return result;
 }
@@ -444,7 +495,7 @@ simpleLighting(vec4 color, vec4 Peye, vec3 Neye, vec4 Ctint,
 #else
     float metallic = 0.0;
 #endif
-    
+
     // determine the specular and diffuse intensity
     float Ks = (1.0 - roughness) + 2.0 * metallic;
 
@@ -457,12 +508,15 @@ simpleLighting(vec4 color, vec4 Peye, vec3 Neye, vec4 Ctint,
 #else
     props.shininess = matShininess;
 #endif
+    props.diffuse = matDiffuse.rgb;
+    props.specular = matSpecular.rgb;
 
     LightingContribution light = integrateLights(Peye, Neye, props);
 
     color.rgb += light.ambient * matAmbient.rgb;
     color.rgb += Ctint.rgb * light.diffuse * matDiffuse.rgb;
     color.rgb += Ks * light.specular * matSpecular.rgb;
+    color.rgb += light.indirect;
 
     color.a = matDiffuse.a;
 
